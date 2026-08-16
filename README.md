@@ -3,7 +3,7 @@
 This project contains a Machine Learning application that predicts the risk level of lung cancer based on patient data.
 
 ## Features
-- **Interactive Web Interface**: Built with [Streamlit](https://streamlit.io/).
+- **Interactive Web Interface**: Built with [Streamlit](https://lungs-cancer-prediction-mppzppky3fruttgwj5owr7.streamlit.app/).
 - **Real-time Prediction**: Uses a Random Forest Classifier to predict risk (Low, Medium, High).
 - **Customizable Inputs**: Adjust patient age, lifestyle habits, and symptoms to see how they affect risk.
 
