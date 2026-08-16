@@ -3,23 +3,39 @@ import joblib
 import pandas as pd
 import numpy as np
 import os
+from typing import Any
 
 # Set Page Config
 st.set_page_config(page_title="Lung Cancer Prediction", page_icon="🫁", layout="wide")
 
-# Load Artifacts
+# Load Artifacts from repo root (or allow upload if missing)
 @st.cache_resource
 def load_artifacts():
-    base_path = r"C:\PYTHON PROGRAMMING\Lungs Cancer Prediction"
-    model = joblib.load(os.path.join(base_path, "lung_cancer_rf_model.joblib"))
-    scaler = joblib.load(os.path.join(base_path, "lung_cancer_scaler.joblib"))
-    encoder = joblib.load(os.path.join(base_path, "lung_cancer_encoder.joblib"))
-    return model, scaler, encoder
+    # Files are expected in the app root (where app.py lives)
+    base_path = os.path.dirname(__file__)
+    model_path = os.path.join(base_path, "lung_cancer_rf_model.joblib")
+    scaler_path = os.path.join(base_path, "lung_cancer_scaler.joblib")
+    encoder_path = os.path.join(base_path, "lung_cancer_encoder.joblib")
+
+    missing = []
+    for p in (model_path, scaler_path, encoder_path):
+        if not os.path.exists(p):
+            missing.append(os.path.basename(p))
+
+    model = scaler = encoder = None
+    if missing:
+        # return Nones and let the UI show uploaders
+        return None, None, None, missing
+
+    model = joblib.load(model_path)
+    scaler = joblib.load(scaler_path)
+    encoder = joblib.load(encoder_path)
+    return model, scaler, encoder, []
 
 try:
-    model, scaler, encoder = load_artifacts()
+    model, scaler, encoder, missing_files = load_artifacts()
 except Exception as e:
-    st.error(f"Error loading model: {e}")
+    st.error(f"Error loading model artifacts: {e}")
     st.stop()
 
 # Title and Description
@@ -91,33 +107,71 @@ def user_input_features():
 
 input_df = user_input_features()
 
+# Show missing-model uploader if needed
+if missing_files:
+    st.warning("Model artifact(s) not found in the repository: " + ", ".join(missing_files))
+    st.info("Please upload the model files (lung_cancer_rf_model.joblib, lung_cancer_scaler.joblib, lung_cancer_encoder.joblib) using the uploaders below. Once uploaded they'll be used for prediction in this session.")
+    st.markdown("**Upload model artifacts (session-only)**")
+    up_model = st.file_uploader("Upload lung_cancer_rf_model.joblib", type=["joblib"], key="model_upload")
+    up_scaler = st.file_uploader("Upload lung_cancer_scaler.joblib", type=["joblib"], key="scaler_upload")
+    up_encoder = st.file_uploader("Upload lung_cancer_encoder.joblib", type=["joblib"], key="encoder_upload")
+
+    if up_model and up_scaler and up_encoder:
+        try:
+            model = joblib.load(up_model)
+            scaler = joblib.load(up_scaler)
+            encoder = joblib.load(up_encoder)
+            st.success("Model artifacts loaded for this session.")
+            missing_files = []
+        except Exception as e:
+            st.error(f"Failed to load uploaded artifacts: {e}")
+
 # Main Panel Display
 st.subheader("Patient Profile")
 st.write(input_df)
 
 if st.button("Predict Risk Level"):
-    # Preprocess
-    scaled_features = scaler.transform(input_df)
-    
-    # Predict
-    prediction_encoded = model.predict(scaled_features)
-    prediction = encoder.inverse_transform(prediction_encoded)
-    probability = model.predict_proba(scaled_features)
-    
-    st.subheader("Prediction Result")
-    result = prediction[0]
-    
-    if result == "Low":
-        st.success(f"Risk Level: **{result}**")
-        st.balloons()
-    elif result == "Medium":
-        st.warning(f"Risk Level: **{result}**")
+    if missing_files:
+        st.error("Model artifacts are not available. Please add the joblib files to the repo or upload them in the sidebar.")
     else:
-        st.error(f"Risk Level: **{result}**")
-        
-    st.write("Confidence Scores:")
-    probs_df = pd.DataFrame(probability, columns=encoder.classes_)
-    st.bar_chart(probs_df.T)
+        try:
+            # Preprocess
+            scaled_features = scaler.transform(input_df)
+            
+            # Predict
+            prediction_encoded = model.predict(scaled_features)
+            # encoder could be a LabelEncoder or similar
+            try:
+                prediction = encoder.inverse_transform(prediction_encoded)
+            except Exception:
+                # if encoder expects 2D or different input, fall back to using prediction_encoded
+                prediction = prediction_encoded
+
+            probability = None
+            if hasattr(model, "predict_proba"):
+                probability = model.predict_proba(scaled_features)
+
+            st.subheader("Prediction Result")
+            result = prediction[0] if isinstance(prediction, (list, np.ndarray)) else prediction
+
+            if result == "Low":
+                st.success(f"Risk Level: **{result}**")
+                st.balloons()
+            elif result == "Medium":
+                st.warning(f"Risk Level: **{result}**")
+            else:
+                st.error(f"Risk Level: **{result}**")
+                
+            if probability is not None:
+                st.write("Confidence Scores:")
+                try:
+                    probs_df = pd.DataFrame(probability, columns=encoder.classes_)
+                    st.bar_chart(probs_df.T)
+                except Exception:
+                    st.write(probability)
+
+        except Exception as e:
+            st.error(f"Prediction failed: {e}")
 
 st.markdown("---")
 st.markdown("*Disclaimer: This tool is for educational purposes only and should not replace professional medical advice.*")
